@@ -66,6 +66,8 @@ legend{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--
 .err{color:var(--bad);font-size:12px}
 .err:empty{display:none}
 .hint{color:var(--muted);font-size:12px}
+textarea.in{min-height:96px;resize:vertical;line-height:1.5;font:inherit}
+.pv-notes{white-space:pre-wrap;color:var(--ink);font-size:13px;padding:8px 0 0}
 .money-in{position:relative}
 .money-in span{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted)}
 .money-in .in{padding-left:24px}
@@ -190,6 +192,13 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding-block:0 32px}
               <div><div class="k">Total</div><div class="calc num" id="calcLine">Hours × rate</div></div>
               <div class="v" id="totalOut">$0.00</div>
             </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Notes</legend>
+            <div class="field"><label class="l" for="f-notes">Notes for this invoice <span class="opt">(optional)</span></label>
+              <textarea class="in" id="f-notes" maxlength="300" placeholder="Anything payroll should know, like tasks covered, days off or adjustments."></textarea>
+              <div class="hint"><span id="notesCount">0</span>/300 characters. Notes appear on the PDF.</div></div>
           </fieldset>
 
           <fieldset>
@@ -339,10 +348,11 @@ function syncAch(){ $('#achBox').hidden = !useAch.checked; $('#platWrap').hidden
 function syncPlat(){ const p = plat(); $('#wiseWrap').hidden = p !== 'wise'; $('#payoWrap').hidden = p !== 'payoneer'; }
 function syncOt(){ $('#otBox').hidden = !useOt.checked; }
 ['f-hours','f-rate','f-othours'].forEach(id => F(id).addEventListener('input', updateTotal));
+F('f-notes').addEventListener('input', () => { $('#notesCount').textContent = F('f-notes').value.length; });
 useAch.addEventListener('change', () => { syncAch(); renderPreview(); });
 useOt.addEventListener('change', () => { syncOt(); updateTotal(); renderPreview(); });
 document.querySelectorAll('input[name=plat]').forEach(r => r.addEventListener('change', () => { syncPlat(); renderPreview(); }));
-document.querySelectorAll('#invForm input:not([type=checkbox]), #invForm select').forEach(el => el.addEventListener('input', () => { el.removeAttribute('aria-invalid'); renderPreview(); }));
+document.querySelectorAll('#invForm input:not([type=checkbox]), #invForm select, #invForm textarea').forEach(el => el.addEventListener('input', () => { el.removeAttribute('aria-invalid'); renderPreview(); }));
 
 function abaValid(n){ if(!/^\d{9}$/.test(n)) return false; const d=[...n].map(Number);
   return (3*(d[0]+d[3]+d[6]) + 7*(d[1]+d[4]+d[7]) + (d[2]+d[5]+d[8])) % 10 === 0; }
@@ -351,7 +361,7 @@ function collect(){
   const v = id => F(id).value.trim();
   const inv = { title: v('f-title'), email: v('f-email').toLowerCase(), name: v('f-name'), cycleId: cyc.value,
     hours: round2(parseFloat(v('f-hours'))||0), rate: round2(parseFloat(v('f-rate'))||0), total: total(),
-    method: useAch.checked ? 'ach' : plat() };
+    method: useAch.checked ? 'ach' : plat(), notes: v('f-notes') };
   const n = nums();
   inv.otHours = useOt.checked ? round2(n.oh||0) : 0;
   inv.otRate = useOt.checked ? round2(n.or||0) : 0;
@@ -414,7 +424,8 @@ function renderPreview(){
     line('Payment', pay) +
     (inv.method==='wise' ? line('Wise name', esc(inv.wise.name||'—')) + line('Wise email', esc(inv.wise.email||'—')) : '') +
     (inv.method==='payoneer' ? line('Payoneer name', esc(inv.payoneer.name||'—')) + (inv.payoneer.customerId ? line('Customer ID', esc(inv.payoneer.customerId)) : '') : '') +
-    `<div class="rline" style="border:0;font-size:15px"><span style="color:var(--ink);font-weight:600">Amount due</span><span class="num" style="font-weight:600">${usd(inv.total)}</span></div>`;
+    `<div class="rline" style="border:0;font-size:15px"><span style="color:var(--ink);font-weight:600">Amount due</span><span class="num" style="font-weight:600">${usd(inv.total)}</span></div>` +
+    (inv.notes ? `<div class="rline" style="display:block"><span>Notes</span><div class="pv-notes">${esc(inv.notes)}</div></div>` : '');
 }
 
 let tt; function toast(m){ const t=$('#toast'); t.textContent=m; t.hidden=false; clearTimeout(tt); tt=setTimeout(()=>t.hidden=true,3200); }
@@ -465,6 +476,12 @@ function invoicePdf(inv){
   doc.setTextColor(67,232,255); doc.setFontSize(9); doc.text('TOTAL DUE (USD)', W/2+14, y+4);
   doc.setTextColor(255,255,255); doc.setFontSize(16); doc.setFont('helvetica','bold'); doc.text(usd(inv.total), W-M-14, y+6, {align:'right'});
 
+  if (inv.notes) {
+    y += 56; doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...mute); doc.text('NOTES', M, y);
+    y += 16; doc.setFontSize(10.5); doc.setTextColor(...ink);
+    const nl = doc.splitTextToSize(inv.notes, W-2*M).slice(0, 4);
+    doc.text(nl, M, y); y += (nl.length-1)*14 - 26;
+  }
   y += 56; doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...mute); doc.text('PAYMENT DETAILS', M, y);
   y += 16; doc.setFontSize(10.5);
   const w = wiseOf(inv);
@@ -526,7 +543,7 @@ $('#invForm').addEventListener('submit', async ev => {
 });
 
 function clearForm(keepPerson){
-  ['f-title','f-hours','f-othours','f-otby'].forEach(id => F(id).value=''); useOt.checked = false; syncOt();
+  ['f-title','f-hours','f-othours','f-otby','f-notes'].forEach(id => F(id).value=''); $('#notesCount').textContent = 0; useOt.checked = false; syncOt();
   if (!keepPerson) { setPlat('wise'); syncPlat(); ['f-name','f-wise','w-name','w-email','p-name','p-email','p-id','a-name','a-routing','a-acct','a-bank','a-swift','a-addr','f-rate'].forEach(id=>F(id).value=''); F('a-type').value=''; useAch.checked=false; syncAch(); }
   fillCycles(); cyc.value = DEFAULT_CYCLE; cycleHint(); updateTotal(); renderPreview();
   $('#pvNo').textContent='Draft'; $('#formMsg').hidden = true;
@@ -540,6 +557,7 @@ function loadIntoForm(inv){
   F('f-hours').value = inv.hours; F('f-rate').value = inv.rate;
   const ot = Number(inv.otHours)||0; useOt.checked = ot > 0; syncOt();
   F('f-othours').value = ot > 0 ? ot : ''; F('f-otby').value = inv.otApprover||'';
+  F('f-notes').value = inv.notes||''; $('#notesCount').textContent = F('f-notes').value.length;
   useAch.checked = inv.method === 'ach'; syncAch();
   setPlat(inv.method === 'payoneer' ? 'payoneer' : 'wise'); syncPlat();
   if (inv.method === 'payoneer') { const po = inv.payoneer||{}; F('p-name').value = po.name||''; F('p-email').value = po.email||''; F('p-id').value = po.customerId||''; }
