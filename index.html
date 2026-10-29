@@ -78,6 +78,13 @@ textarea.in{min-height:96px;resize:vertical;line-height:1.5;font:inherit}
 .total-box .calc{font-size:12px;color:var(--band-mute)}
 .check{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border:1px dashed var(--line);border-radius:8px;cursor:pointer}
 .check input{width:18px;height:18px;margin-top:2px;accent-color:var(--accent)}
+.miss-grid{display:grid;grid-template-columns:1fr 130px;gap:8px 12px;align-items:center}
+.miss-grid label{display:flex;gap:10px;align-items:flex-start;cursor:pointer;min-height:42px;padding:4px 0}
+.miss-grid .mname{font-weight:600;color:var(--ink)}
+.miss-grid label .hint{display:block;margin-top:2px;line-height:1.4}
+.miss-grid label input{width:18px;height:18px;margin:2px 0 0;flex:none;accent-color:var(--accent)}
+.miss-grid .in:disabled{opacity:.45}
+.miss-grid .err{grid-column:1/-1;margin-top:-4px}
 .seg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .seg label{display:flex;gap:10px;align-items:center;padding:12px 14px;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:var(--surface-2);font-weight:500}
 .seg label:has(input:checked){border-color:var(--accent);background:var(--info-bg)}
@@ -174,6 +181,26 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding-block:0 32px}
                 <input class="in num" id="f-hours" type="number" inputmode="decimal" min="0" max="336" step="0.25" placeholder="80.00"><div class="err" id="e-hours"></div></div>
               <div class="field"><label class="l" for="f-rate">Hourly rate (USD)</label>
                 <div class="money-in"><span>$</span><input class="in num" id="f-rate" type="number" inputmode="decimal" min="0" step="0.01"></div><div class="err" id="e-rate"></div></div>
+            </div>
+            <div class="ach" id="missBox" hidden>
+              <div><b style="font-weight:500">Missed work</b><br><span class="hint" id="missHint">You logged under 80 standard hours. Tick the reasons and enter the hours for each.</span></div>
+              <div class="miss-grid" role="group" aria-labelledby="missHint">
+                <label for="mc-pto"><input type="checkbox" id="mc-pto"> <span><b class="mname">PTO (Paid Time Off)</b><span class="hint">Approved time off. Paid at your hourly rate and added to your total.</span></span></label>
+                <input class="in num" id="m-pto" type="number" inputmode="decimal" min="0" max="80" step="0.25" placeholder="Hours" aria-label="PTO (Paid Time Off) hours" disabled>
+                <div class="err" id="e-m-pto"></div>
+                <label for="mc-unpaid"><input type="checkbox" id="mc-unpaid"> <span><b class="mname">Unpaid Time Off</b><span class="hint">Approved time off that isn’t paid. Not added to your total.</span></span></label>
+                <input class="in num" id="m-unpaid" type="number" inputmode="decimal" min="0" max="80" step="0.25" placeholder="Hours" aria-label="Unpaid Time Off hours" disabled>
+                <div class="err" id="e-m-unpaid"></div>
+                <label for="mc-sick"><input type="checkbox" id="mc-sick"> <span><b class="mname">Sick</b><span class="hint">Time off due to illness. Not paid and not added to your total.</span></span></label>
+                <input class="in num" id="m-sick" type="number" inputmode="decimal" min="0" max="80" step="0.25" placeholder="Hours" aria-label="Sick hours" disabled>
+                <div class="err" id="e-m-sick"></div>
+                <label for="mc-holiday"><input type="checkbox" id="mc-holiday"> <span><b class="mname">Paid Holiday Off</b><span class="hint">A company holiday. Paid at your hourly rate and added to your total.</span></span></label>
+                <input class="in num" id="m-holiday" type="number" inputmode="decimal" min="0" max="80" step="0.25" placeholder="Hours" aria-label="Paid Holiday Off hours" disabled>
+                <div class="err" id="e-m-holiday"></div>
+                <label for="mc-project" style="grid-column:1/-1"><input type="checkbox" id="mc-project"> <span><b class="mname">Project based</b><span class="hint">You work on a project with fewer set hours. Check this if you weren’t required to complete 80 hours this cycle.</span></span></label>
+                <input id="m-project" type="hidden">
+              </div>
+              <div class="err" id="e-miss"></div>
             </div>
             <label class="check" for="f-useot">
               <input type="checkbox" id="f-useot">
@@ -313,14 +340,16 @@ const today = toUTC(new Date());
 const kNow = Math.floor((today - ANCHOR)/(14*DAY));
 const latest = cycleAt(cycleAt(kNow).end < today ? kNow : kNow - 1);
 const current = cycleAt(latest.k + 1);
-const CYCLES = [0,1,2,3,4,5].map(i => cycleAt(current.k + i)); // in-progress cycle, then upcoming ones
-const DEFAULT_CYCLE = current.id;
+// The cycle that just ended stays selectable until the end of its Friday release day.
+const prevOpen = today <= latest.pay;
+const CYCLES = [...(prevOpen ? [latest] : []), ...[0,1,2,3,4,5].map(i => cycleAt(current.k + i))];
+const DEFAULT_CYCLE = prevOpen ? latest.id : current.id;
 
 $('#cycleChip').innerHTML = `Current cycle <b>${current.label}</b><br>Released <b>${niceW(current.pay)}</b><br>Next cycle starts ${nice(current.end + DAY)}`;
 const cyc = F('f-cycle');
 function fillCycles(extraId){
   const list = [...CYCLES]; if (extraId && !list.some(c=>c.id===extraId)) list.push(cycleFromId(extraId));
-  cyc.innerHTML = list.map(c => `<option value="${c.id}">${c.label}${c.id===current.id?'  (current)':''}</option>`).join('');
+  cyc.innerHTML = list.map(c => `<option value="${c.id}">${c.label}${c.id===current.id?'  (current)':(prevOpen && c.id===latest.id)?`  (just ended · releases ${nice(c.pay,false)})`:''}</option>`).join('');
 }
 fillCycles(); cyc.value = DEFAULT_CYCLE;
 function cycleHint(){ const c = cycleFromId(cyc.value); $('#cycleHint').textContent = `Cycle ends Wed ${nice(c.end)} · payroll release Fri ${nice(c.pay)}`; }
@@ -329,19 +358,45 @@ cycleHint();
 
 /* ---------- Form logic ---------- */
 const useAch = F('f-useach'), useOt = F('f-useot');
+const MIN_HOURS = 80;
+const MISS = [['pto','PTO (Paid Time Off)',true],['unpaid','Unpaid Time Off',false],['sick','Sick',false],['holiday','Paid Holiday Off',true],['project','Project based',false]];
+function needMiss(){ const h = parseFloat(F('f-hours').value); return h > 0 && h < MIN_HOURS; }
+function missedList(){
+  const list = MISS.filter(([k]) => k !== 'project' && F('mc-'+k).checked).map(([k,label,paid]) => ({reason:k, label, paid, hours: round2(parseFloat(F('m-'+k).value)||0)}));
+  if (F('mc-project').checked) {
+    const h = parseFloat(F('f-hours').value) || 0, used = list.reduce((a,m) => a + m.hours, 0);
+    list.push({reason:'project', label:'Project based', paid:false, hours: round2(Math.max(0, MIN_HOURS - h - used))});
+  }
+  return list;
+}
+function syncMiss(){
+  const show = needMiss(); $('#missBox').hidden = !show;
+  MISS.forEach(([k]) => { F('m-'+k).disabled = !F('mc-'+k).checked; });
+  if (!show) return;
+  const h = parseFloat(F('f-hours').value), gap = round2(MIN_HOURS - h);
+  const acc = round2(missedList().reduce((a,m) => a + m.hours, 0));
+  $('#missHint').textContent = `You logged ${fmtH(h)} of ${MIN_HOURS} standard hours, ${fmtH(gap)} short. Tick the reasons and enter the hours for each (${fmtH(acc)} of ${fmtH(gap)} explained).`;
+}
+F('f-hours').addEventListener('input', () => { syncMiss(); updateTotal(); });
+MISS.forEach(([k]) => {
+  F('mc-'+k).addEventListener('change', () => { syncMiss(); updateTotal(); if (F('mc-'+k).checked) F('m-'+k).focus(); renderPreview(); });
+  F('m-'+k).addEventListener('input', () => { syncMiss(); updateTotal(); });
+});
 const plat = () => (document.querySelector('input[name=plat]:checked')||{}).value || 'wise';
 const setPlat = v => { document.querySelectorAll('input[name=plat]').forEach(r => r.checked = r.value === v); };
 function nums(){
   const h = parseFloat(F('f-hours').value), r = parseFloat(F('f-rate').value);
   const oh = useOt.checked ? parseFloat(F('f-othours').value) : 0;
-  return {h, r, oh, or: r};
+  const po = needMiss() ? missedList().filter(m => m.paid).reduce((a,m) => a + m.hours, 0) : 0;
+  return {h, r, oh, or: r, po};
 }
-function total(){ const {h,r,oh,or} = nums(); if (!(h>=0 && r>=0)) return 0; return round2(h*r + ((oh>0 && or>=0) ? oh*or : 0)); }
+function total(){ const {h,r,oh,or,po} = nums(); if (!(h>=0 && r>=0)) return 0; return round2(h*r + ((oh>0 && or>=0) ? oh*or : 0) + (po>0 ? po*r : 0)); }
 function updateTotal(){
-  const {h,r,oh,or} = nums();
+  const {h,r,oh,or,po} = nums();
   $('#totalOut').textContent = usd(total());
   let calc = (h>=0 && r>=0) ? `${fmtH(h)} hrs × ${usd(r)}/hr` : 'Hours × rate';
   if (useOt.checked) calc += (oh>0 && or>=0) ? ` + ${fmtH(oh)} OT hrs × ${usd(or)}/hr` : ' + overtime';
+  if (po > 0 && r >= 0) calc += ` + ${fmtH(po)} paid time off hrs × ${usd(r)}/hr`;
   $('#calcLine').textContent = calc;
 }
 function syncAch(){ $('#achBox').hidden = !useAch.checked; $('#platWrap').hidden = useAch.checked; }
@@ -366,6 +421,8 @@ function collect(){
   inv.otHours = useOt.checked ? round2(n.oh||0) : 0;
   inv.otRate = useOt.checked ? round2(n.or||0) : 0;
   inv.otApprover = useOt.checked ? v('f-otby') : '';
+  inv.missed = needMiss() ? missedList() : [];
+  inv.paidOffHours = round2(inv.missed.filter(m => m.paid).reduce((a,m) => a + m.hours, 0));
   if (useAch.checked) inv.ach = { holder: v('a-name'), type: v('a-type'), routing: v('a-routing'), account: v('a-acct'), bank: v('a-bank'), address: v('a-addr'), swift: v('a-swift').toUpperCase() };
   else if (inv.method === 'payoneer') inv.payoneer = { name: v('p-name'), email: v('p-email').toLowerCase(), customerId: v('p-id') };
   else inv.wise = { handle: v('f-wise'), name: v('w-name'), email: v('w-email').toLowerCase() };
@@ -381,6 +438,12 @@ function validate(){
   if (!(h > 0)) errs['hours'] = 'Enter the standard hours you worked this cycle.'; else if (h > 336) errs['hours'] = 'A two-week cycle has at most 336 hours. Check this number.';
   const r = parseFloat(F('f-rate').value);
   if (!(r > 0)) errs['rate'] = 'Enter your hourly rate in USD.';
+  if (needMiss()) {
+    if (!inv.missed.length) errs['miss'] = `You logged under ${MIN_HOURS} hours. Choose at least one reason for the missed time.`;
+    inv.missed.forEach(m => { if (m.reason !== 'project' && !(m.hours > 0)) errs['m-'+m.reason] = `Enter the ${m.label} hours.`; });
+    const acc = inv.missed.reduce((a,m) => a + m.hours, 0);
+    if (inv.missed.length && acc > round2(MIN_HOURS - h) + 0.001 && !inv.missed.some(m => m.reason !== 'project' && !(m.hours > 0))) errs['miss'] = `Missed hours add up to more than the ${fmtH(round2(MIN_HOURS - h))} you're short. Check the numbers.`;
+  }
   if (useOt.checked) {
     const oh = parseFloat(F('f-othours').value);
     if (!(oh > 0)) errs['othours'] = 'Enter your overtime hours, or untick overtime.';
@@ -406,7 +469,7 @@ function validate(){
     if (a.bank.length < 2) errs['a-bank'] = 'Enter your bank\'s name.';
     if (!/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(a.swift)) errs['a-swift'] = 'SWIFT/BIC codes are 8 or 11 letters and numbers.';
   }
-  const map = {title:'f-title',email:'f-email',name:'f-name',cycle:'f-cycle',hours:'f-hours',rate:'f-rate',wise:'f-wise','w-name':'w-name','w-email':'w-email','p-name':'p-name','p-email':'p-email',othours:'f-othours',otby:'f-otby','a-name':'a-name','a-type':'a-type','a-routing':'a-routing','a-acct':'a-acct','a-bank':'a-bank','a-swift':'a-swift'};
+  const map = {title:'f-title',email:'f-email',name:'f-name',cycle:'f-cycle',hours:'f-hours',rate:'f-rate',wise:'f-wise','w-name':'w-name','w-email':'w-email','p-name':'p-name','p-email':'p-email',othours:'f-othours',otby:'f-otby',miss:'mc-pto','m-pto':'m-pto','m-unpaid':'m-unpaid','m-sick':'m-sick','m-holiday':'m-holiday','a-name':'a-name','a-type':'a-type','a-routing':'a-routing','a-acct':'a-acct','a-bank':'a-bank','a-swift':'a-swift'};
   for (const k in map){ const el = F(map[k]), e = F('e-'+k); if(e) e.textContent = errs[k]||''; if(errs[k]) el.setAttribute('aria-invalid','true'); else el.removeAttribute('aria-invalid'); }
   return {inv, errs};
 }
@@ -420,6 +483,7 @@ function renderPreview(){
     line('Bill to','Savvy STR Agents') + line('From', esc(inv.name||'—')) + line('Work email', esc(inv.email||'—')) +
     line('Service period', c.label) + line('Release date', niceW(c.pay)) +
     line('Standard hours', `<span class="num">${fmtH(inv.hours)}</span>`) + line('Rate', `<span class="num">${usd(inv.rate)}/hr</span>`) +
+    (inv.missed.length ? line('Missed work', inv.missed.map(m => m.reason === 'project' ? 'Project based' : `${esc(m.label)} <span class="num">${fmtH(m.hours)}</span>${m.paid ? ` · paid <span class="num">${usd(round2(m.hours*inv.rate))}</span>` : ''}`).join('<br>')) : '') +
     (useOt.checked ? line('Overtime hours', `<span class="num">${fmtH(inv.otHours)} × ${usd(inv.otRate)}/hr</span>`) + line('Overtime approved by', esc(inv.otApprover||'—')) : '') +
     line('Payment', pay) +
     (inv.method==='wise' ? line('Wise name', esc(inv.wise.name||'—')) + line('Wise email', esc(inv.wise.email||'—')) : '') +
@@ -471,25 +535,38 @@ function invoicePdf(inv){
     y += 14; doc.setFontSize(9); doc.setTextColor(...mute); doc.text('Approved by ' + (inv.otApprover||'—'), M+12, y);
     doc.setFontSize(11); doc.setTextColor(...ink);
   }
+  const missedAll = Array.isArray(inv.missed) ? inv.missed : [];
+  missedAll.filter(m => m.paid && m.hours > 0).forEach(m => {
+    y += 24; doc.setTextColor(...ink); doc.setFontSize(11);
+    doc.text(m.label, M+12, y); doc.text(fmtH(m.hours), 360, y, {align:'right'}); doc.text(usd(inv.rate), 450, y, {align:'right'}); doc.text(usd(round2(m.hours*inv.rate)), W-M-12, y, {align:'right'});
+  });
+  const missed = missedAll.filter(m => !m.paid);
+  if (missed.length) {
+    y += 18; doc.setFontSize(9); doc.setTextColor(...mute);
+    const ml = doc.splitTextToSize('Unpaid missed work: ' + missed.map(m => m.reason === 'project' ? 'Project based' : `${m.label} ${fmtH(m.hours)} hrs`).join(' · '), W-2*M-24);
+    doc.text(ml.slice(0,2), M+12, y); y += 12*(Math.min(ml.length,2)-1);
+    doc.setFontSize(11); doc.setTextColor(...ink);
+  }
   y += 18; doc.setDrawColor(214,225,231); doc.line(M, y, W-M, y);
   y += 30; doc.setFillColor(...navy); doc.rect(W/2, y-20, W/2-M, 40, 'F');
   doc.setTextColor(67,232,255); doc.setFontSize(9); doc.text('TOTAL DUE (USD)', W/2+14, y+4);
   doc.setTextColor(255,255,255); doc.setFontSize(16); doc.setFont('helvetica','bold'); doc.text(usd(inv.total), W-M-14, y+6, {align:'right'});
 
+  const ensure = n => { if (y + n > 724) { doc.addPage(); y = 40; } };
   if (inv.notes) {
-    y += 56; doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...mute); doc.text('NOTES', M, y);
+    ensure(56+16+56); y += 56; doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...mute); doc.text('NOTES', M, y);
     y += 16; doc.setFontSize(10.5); doc.setTextColor(...ink);
     const nl = doc.splitTextToSize(inv.notes, W-2*M).slice(0, 4);
     doc.text(nl, M, y); y += (nl.length-1)*14 - 26;
   }
-  y += 56; doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...mute); doc.text('PAYMENT DETAILS', M, y);
+  ensure(56+16+17*3); y += 56; doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...mute); doc.text('PAYMENT DETAILS', M, y);
   y += 16; doc.setFontSize(10.5);
   const w = wiseOf(inv);
   const po = inv.payoneer || {};
   const rows = inv.method==='wise' ? [['Method','Wise'],['Wise handle', w.handle||'—'],['Account name', w.name||'—'],['Wise email', w.email||'—']] :
     inv.method==='payoneer' ? [['Method','Payoneer'],['Account name', po.name||'—'],['Payoneer email', po.email||'—'],['Customer ID', po.customerId||'—']] :
     [['Method','ACH / bank transfer'],['Account holder',inv.ach.holder],['Account type',inv.ach.type],['Routing number',inv.ach.routing],['Account number',inv.ach.account],['Bank name',inv.ach.bank],['Bank address',inv.ach.address||'—'],['SWIFT / BIC',inv.ach.swift]];
-  rows.forEach(([k,v]) => { doc.setTextColor(...mute); doc.text(k, M, y); doc.setTextColor(...ink); doc.text(String(v), M+130, y); y += 17; });
+  rows.forEach(([k,v]) => { ensure(17); doc.setTextColor(...mute); doc.text(k, M, y); doc.setTextColor(...ink); doc.text(String(v), M+130, y); y += 17; });
 
   doc.setFontSize(8.5); doc.setTextColor(...mute);
   doc.text('Biweekly cycle runs Thursday to Wednesday. Payroll is processed Thursday–Friday and released on Friday.', M, 742);
@@ -544,6 +621,7 @@ $('#invForm').addEventListener('submit', async ev => {
 
 function clearForm(keepPerson){
   ['f-title','f-hours','f-othours','f-otby','f-notes'].forEach(id => F(id).value=''); $('#notesCount').textContent = 0; useOt.checked = false; syncOt();
+  MISS.forEach(([k]) => { F('mc-'+k).checked = false; F('m-'+k).value = ''; }); syncMiss();
   if (!keepPerson) { setPlat('wise'); syncPlat(); ['f-name','f-wise','w-name','w-email','p-name','p-email','p-id','a-name','a-routing','a-acct','a-bank','a-swift','a-addr','f-rate'].forEach(id=>F(id).value=''); F('a-type').value=''; useAch.checked=false; syncAch(); }
   fillCycles(); cyc.value = DEFAULT_CYCLE; cycleHint(); updateTotal(); renderPreview();
   $('#pvNo').textContent='Draft'; $('#formMsg').hidden = true;
@@ -557,6 +635,7 @@ function loadIntoForm(inv){
   F('f-hours').value = inv.hours; F('f-rate').value = inv.rate;
   const ot = Number(inv.otHours)||0; useOt.checked = ot > 0; syncOt();
   F('f-othours').value = ot > 0 ? ot : ''; F('f-otby').value = inv.otApprover||'';
+  MISS.forEach(([k]) => { const m = (inv.missed||[]).find(x => x.reason === k); F('mc-'+k).checked = !!m; F('m-'+k).value = m && k !== 'project' ? m.hours : ''; }); syncMiss();
   F('f-notes').value = inv.notes||''; $('#notesCount').textContent = F('f-notes').value.length;
   useAch.checked = inv.method === 'ach'; syncAch();
   setPlat(inv.method === 'payoneer' ? 'payoneer' : 'wise'); syncPlat();
@@ -604,7 +683,7 @@ F('rows').addEventListener('click', async e => {
 });
 
 /* ---------- Boot ---------- */
-syncAch(); syncPlat(); syncOt(); updateTotal(); renderPreview(); renderList();
+syncAch(); syncPlat(); syncOt(); syncMiss(); updateTotal(); renderPreview(); renderList();
 useLocal('Invoices are saved in this browser only. Clearing your browser data removes them.');
 })();
 </script>
